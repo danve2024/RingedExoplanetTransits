@@ -471,7 +471,7 @@ python complete_nested_sampling_analysis.py
   - `star_spots/` - Star spots model results and figures
 
 - **`kfolds/`** - K-fold cross-validation results:
-  - `0/`, `1/`, `2/`, `3/`, `/4` - Individual fold results with figures and analysis
+  - `0/`, `1/`, `2/`, `3/`, `4/` - Individual fold results with figures and analysis
 
 - **`MCMC_run1/`, `MCMC_run2/`, `MCMC_best_run/`** - MCMC analysis results
 
@@ -498,5 +498,6 @@ Install required packages:
 ```bash
 pip install -r requirements.txt
 ```
+
 
 
