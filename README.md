@@ -28,7 +28,7 @@ This project provides a code framework for modeling and analyzing transits of ri
 - Exoplanet orbit inclination: (0°, 90°)
 - Exoplanet longitude of ascending node: (90° - 5e-8, 90° + 5e-8)
 - Exoplanet argument of periapsis: (0°, 180°)
-- Exoplanet radius: (2,000 km, 58,880 km) [Must be lower that in Santerne et al., 2019]
+- Exoplanet radius: (2,000 km, 58,880 km) [Must be lower than in Santerne et al., 2019]
 - Ring eccentricity: (0, 0.4)
 - Ring semi-major axis: (dynamic, based on Roche limit)
 - Ring width: (0, dynamic maximum based on Roche limit)
@@ -221,13 +221,13 @@ This project provides a code framework for modeling and analyzing transits of ri
   - Unit conversions (to_pixels)
   - Light curve normalization
 
-- **`units.py`** - Contains constants for physical unit coversion.
+- **`units.py`** - Contains constants for physical unit conversion.
 
 - **`measure.py`** - Implements the `Measure` class for handling physical quantities with units, including unit conversions and arithmetic operations.
 
 ### Main Application
 
-- **`main.py`** - Main application entry point. Defines default parameter ranges and the `calculate_data()` function that orchestrates the simulation by creating rings, orbits, exoplanets, and computing transit light curves. Can be run as a GUI application for interactive parameter exploration (it does not work for now).
+- **`main.py`** - Main application entry point. Defines default parameter ranges and the `calculate_data()` function that orchestrates the simulation by creating rings, orbits, exoplanets, and computing transit light curves. Can be run as a GUI application for interactive parameter exploration (although it is currently not functional).
 
 ### Parameter Estimation
 
@@ -313,7 +313,7 @@ This project provides a code framework for modeling and analyzing transits of ri
   - `ringless/` - Ringless model results
   - `star_spots/` - Star spots model results
 
-- **`kfolds/`** - Directory containing k-fold cross-validation results (0-3)
+- **`kfolds/`** - Directory containing k-fold cross-validation results (0-4)
 
 - **`MCMC_run1/`, `MCMC_run2/`, `MCMC_best_run/`** - Directories containing MCMC analysis results
 
@@ -489,7 +489,7 @@ python complete_nested_sampling_analysis.py
   - `oblate_planet.json` - Oblate planet cache
   - `ringless.json` - Ringless model cache
   - `star_spots.json` - Star spots model cache
-  - `kfold0.json` through `kfold3.json` - K-fold validation caches
+  - `kfold0.json` through `kfold4.json` - K-fold validation caches
 
 ## Dependencies
 
@@ -498,6 +498,7 @@ Install required packages:
 ```bash
 pip install -r requirements.txt
 ```
+
 
 
 
