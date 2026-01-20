@@ -7,3 +7,4 @@ starry_env/
 .DS_Store
 sandbox.py
 tasks.py
+loglikes/*
