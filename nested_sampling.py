@@ -1,0 +1,868 @@
+import numpy as np
+import seaborn as sns
+import pandas as pd
+import matplotlib.pyplot as plt
+import corner
+import sys
+from typing import Union, List, Dict
+from dynesty import DynamicNestedSampler
+from dynesty import utils as dyfunc
+from data_fitting import fixed_exoplanet_mass
+from formulas import roche_sma_max, roche_density, volume
+from main import calculate_data, defaults
+from models import quadratic_star_model
+from units import *
+from space import CustomStarModel
+import os
+import json
+import random
+from collections import OrderedDict
+
+invalid = False
+
+min_radius =  2000 * km
+max_radius = 9.2 * 6_400 * km
+max_semi_major_axis_max = roche_sma_max(max_radius, fixed_exoplanet_mass/volume(min_radius), 0, roche_density(fixed_exoplanet_mass, max_radius, 0.9))
+max_width_max = max_semi_major_axis_max - min_radius
+
+specific_parameter_boundaries = {
+    'exoplanet_orbit_eccentricity': (0, 0.4),
+    'exoplanet_orbit_inclination': (0, 90),
+    'exoplanet_longitude_of_ascending_node': (90 - 5e-8, 90 + 5e-8),
+    'exoplanet_argument_of_periapsis': (0, 180),
+    'exoplanet_radius': (min_radius, max_radius),
+    'eccentricity': (0, 0.9),
+    'semi_major_axis': (min_radius, max_semi_major_axis_max), # dynamic boundaries
+    'width': (0, max_width_max), # dynamic boundaries
+    'obliquity': (0, 90),
+    'azimuthal_angle': (0, 180),
+    'argument_of_periapsis': (0, 180)
+}
+
+class colors:
+    # a class for colored output
+    purple = '\033[95m'
+    blue = '\033[94m'
+    cyan = '\033[96m'
+    green = '\033[92m'
+    yellow = '\033[93m'
+    red = '\033[91m'
+    e = '\033[0m'
+    u = '\033[4m'
+    b = '\033[1m'
+
+print(f"{colors.purple}{specific_parameter_boundaries}{colors.e}")
+
+def call_model(params):
+    model_output, transit_duration, exoplanet_obj = (
+        calculate_data(fixed_exoplanet_sma,
+                       params[0], # exoplanet_orbit_eccentricity
+                       params[1], # exoplanet_orbit_inclination
+                       params[2], # exoplanet_longitude_of_ascending_node
+                       params[3], # exoplanet_argument_of_periapsis
+                       params[4], # exoplanet_radius
+                       fixed_exoplanet_mass,
+                       roche_density(fixed_exoplanet_mass, params[6], params[5]),  # density
+                       params[5],  # eccentricity
+                       params[6],  # sma
+                       params[7],  # width
+                       np.nan,
+                       params[8],  # obliquity
+                       params[9],  # azimuthal_angle
+                       params[10],  # argument_of_periapsis
+                       fixed_specific_absorption_coefficient,
+                       fixed_star_object,
+                       fixed_pixel_size,
+                       custom_units=False
+                   )
+    )
+
+    return model_output, transit_duration, exoplanet_obj
+
+class NestedSampler:
+    def __init__(self, nlive: int, ndim: int, files: Dict, labels: List[str], loglike_file: str = 'loglikes/loglike.json', model_fn = None, parameter_boundaries: dict = None, dynamic_boundaries: bool = True, best_fit_params: Union[list, np.ndarray] = None, bootstrap=None):
+        """
+        Initialize the nested sampler.
+
+        Args:
+            nlive: Number of live points
+            ndim: Number of dimensions
+            files: Dictionary of observation files and their colors
+            labels: List of parameter names
+            best_fit_params: Best-fit parameters for result analyses (required only if the sampler is not run)
+        """
+        print(f"{colors.blue}Initializing Nested Sampler...{colors.e}")
+        self.nlive = nlive
+        self.ndim = ndim
+        self.files = files
+        self.labels = labels
+        self.observations = None
+        self.load_and_plot_observations()
+        self.results = None
+        self.loglike_file = loglike_file
+        self.best_fit_params = best_fit_params
+        self.best_loglike = -np.inf
+
+        if model_fn is None:
+            self.call = call_model
+        else:
+            self.call = model_fn
+
+        self.dynamic_boundaries = dynamic_boundaries
+
+        if parameter_boundaries is None:
+            self.parameter_boundaries = specific_parameter_boundaries
+        else:
+            self.parameter_boundaries = parameter_boundaries
+
+        with open(self.loglike_file, 'r') as file:
+            self.loglikes = json.load(file)
+
+        self.param_bounds = list(self.parameter_boundaries.values())
+
+        # stdev = (b-a)/sqrt(12) for uniform distribution
+        self.prior_stdev = np.array([(high - low) / np.sqrt(12) for low, high in self.param_bounds])
+
+        # Initialize the dynamic nested sampler
+        self.sampler = DynamicNestedSampler(
+            self.log_likelihood,
+            self.prior_transform,
+            ndim=ndim,
+            nlive=nlive,
+            bootstrap=bootstrap
+        )
+
+    def __call__(self, params):
+        return self.call(params)
+
+    def update(self, loglike_file: str = 'loglikes/loglike.json', best_fit_params: Union[list, np.ndarray] = None):
+        print(f'{colors.yellow}Updating Nested Sampler...{colors.e}')
+        self.results = None
+        self.loglike_file = loglike_file
+        self.best_fit_params = best_fit_params
+        self.best_loglike = -np.inf
+
+        with open(self.loglike_file, 'r') as file:
+            self.loglikes = json.load(file)
+
+    def prior_transform(self, u):
+        """Transform from unit cube to physical parameter space."""
+        params = np.zeros_like(u)
+        for i, (u_i, (low, high)) in enumerate(zip(u, self.param_bounds)):
+            params[i] = low + (high - low) * u_i
+        return params
+
+    def log_likelihood(self, params):
+        """
+        Calculates the log-likelihood of the observed_data given the model parameters.
+
+        Returns:
+            float: The log-likelihood value. Returns -np.inf if calculation fails or is invalid.
+        """
+
+        params_for_key = []
+        for i in params:
+            params_for_key.append(f'{i:.6f}')
+        key = ' '.join(params_for_key)
+        log_likelihood_value = self.loglikes.get(key)
+
+        if log_likelihood_value is None:
+
+            if self.dynamic_boundaries:
+                exoplanet_orbit_eccentricity, exoplanet_orbit_inclination, \
+                    exoplanet_longitude_of_ascending_node, exoplanet_argument_of_periapsis, \
+                    exoplanet_radius, eccentricity, sma, width, obliquity, azimuthal_angle, \
+                    argument_of_periapsis = params
+
+                density = roche_density(fixed_exoplanet_mass, sma, eccentricity)
+                exoplanet_volume = volume(exoplanet_radius)
+                exoplanet_density = fixed_exoplanet_mass / exoplanet_volume
+
+                a_max = roche_sma_max(exoplanet_radius, exoplanet_density, eccentricity, density)
+                if sma >= a_max or sma <= exoplanet_radius:
+                    print(f'{colors.yellow}Warning: parameter semi-major axis out of boundaries: {sma}.{colors.e}')
+                    self.loglikes[key] = -np.inf
+                    return -np.inf
+
+                w_max = a_max - sma
+                if width >= w_max:
+                    print(f'{colors.yellow}Warning: parameter width out of boundaries: {width}.{colors.e}')
+                    self.loglikes[key] = -np.inf
+                    return -np.inf
+
+            model_output, transit_duration, exoplanet_obj = self(params)
+            model_lightcurve = np.array(model_output)
+
+            if transit_duration == 0:
+                self.loglikes[key] = -np.inf
+                return -np.inf
+
+            if model_lightcurve.shape[0] < 2:
+                self.loglikes[key] = -np.inf
+                return -np.inf
+
+            observed_phases = (self.observations[:, 0] - 0.5) * 0.5 * fixed_observations_duration / transit_duration + 0.5
+            observed_magnitudes = self.observations[:, 1]
+            min_phase = np.maximum(np.min(observed_phases), np.min(model_lightcurve[:, 0]))
+            max_phase = np.minimum(np.max(observed_phases), np.max(model_lightcurve[:, 0]))
+            intersection = (observed_phases >= min_phase) & (observed_phases <= max_phase)
+            obs_phase_intersect = observed_phases[intersection]
+            obs_mag_intersect = observed_magnitudes[intersection]
+
+            if len(obs_phase_intersect) == 0:
+                self.loglikes[key] = -np.inf
+                return -np.inf
+
+            model_predicted_magnitudes = np.interp(
+                obs_phase_intersect,
+                model_lightcurve[:, 0],
+                model_lightcurve[:, 1]
+            )
+
+            residuals = obs_mag_intersect - model_predicted_magnitudes
+            out_of_transit_mask = (obs_mag_intersect > np.percentile(obs_mag_intersect, 90))
+            sigma2 = np.var(obs_mag_intersect[out_of_transit_mask])
+
+            if sigma2 == 0:
+                self.loglikes[key] = -np.inf
+                return -np.inf
+
+            log_likelihood_value = -0.5 * np.sum((residuals ** 2) / sigma2 + np.log(2 * np.pi * sigma2))
+
+            if not np.isfinite(log_likelihood_value):
+                self.loglikes[key] = -np.inf
+                return -np.inf
+
+            self.loglikes[key] = log_likelihood_value
+
+        if log_likelihood_value > self.best_loglike:
+            self.best_loglike = log_likelihood_value
+            print(f"{colors.green}{log_likelihood_value}{colors.e}")
+        return log_likelihood_value
+
+    def best_log_likelihood(self):
+        return self.log_likelihood(self.best_fit_params)
+
+    def run(self, maxiter=None):
+        """Run the nested sampling."""
+        print(f"{colors.blue}Running dynamic nested sampling with {self.nlive} live points...{colors.e}")
+        self.sampler.run_nested(maxiter=maxiter)
+        self.results = self.sampler.results
+        print(f"{colors.green}Nested sampling completed.{colors.e}")
+        self.best_fit_params = self.results.samples[np.argmax(self.results.logl)]
+        return self.results
+
+    def save(self, filename: str = "nested_sampling_results.npz"):
+        with open(self.loglike_file, 'w') as file:
+            json.dump(self.loglikes, file)
+        np.savez_compressed(filename,
+                            samples=self.results.samples,
+                            logwt=self.results.logwt,
+                            logz=self.results.logz,
+                            logzerr=self.results.logzerr,
+                            logl=self.results.logl,
+                            labels=self.labels)
+
+    def get_posterior_samples(self, nsamples=1000):
+        """Get posterior samples from the nested sampling results."""
+        valid_mask = np.isfinite(self.results.logwt) & (self.results.logwt > -1e100) # remove infinite or extremely negative results
+        
+        if not np.any(valid_mask):
+            print(f"{colors.yellow}Warning: No valid samples found. Using best-fit sample only.{colors.e}")
+            # Return copies of the best-fit sample
+            best_fit_idx = np.argmax(self.results.logl)
+            best_fit_sample = self.results.samples[best_fit_idx]
+            return np.array([best_fit_sample for _ in range(min(nsamples, 100))])
+        
+        # Use only valid samples
+        valid_samples = self.results.samples[valid_mask]
+        valid_logwt = self.results.logwt[valid_mask]
+
+        # Use the maximum logz for normalization
+        valid_logz = self.results.logz[np.isfinite(self.results.logz)]
+        if len(valid_logz) > 0:
+            logz_final = valid_logz[-1]
+        else:
+            logz_final = np.max(valid_logwt)
+        
+        weights = np.exp(valid_logwt - logz_final)
+        
+        # Check if weights are valid
+        if np.all(weights == 0) or np.any(~np.isfinite(weights)):
+            print(f"{colors.yellow}Warning: Invalid weights detected. Using uniform weights for valid samples.{colors.e}")
+            weights = np.ones_like(weights)
+        
+        # Normalize weights
+        weights = weights / np.sum(weights)
+        
+        try:
+            samples = dyfunc.resample_equal(
+                samples=valid_samples,
+                weights=weights
+            )
+            return samples[:nsamples]
+        except Exception as e:
+            print(f"{colors.yellow}Warning: Resampling failed ({e}). Using best-fit sample only.{colors.e}")
+            best_fit_idx = np.argmax(self.results.logl[valid_mask])
+            best_fit_sample = valid_samples[best_fit_idx]
+            return np.array([best_fit_sample for _ in range(min(nsamples, 100))])
+
+    def summary(self, q1=16, q2=50, q3=84):
+        """Generate summary statistics for the parameters."""
+        samples = self.get_posterior_samples()
+        ans = ''
+        for i in range(self.ndim):
+            percentiles = np.percentile(samples[:, i], [q1, q2, q3])
+            posterior_stdev = (percentiles[2] - percentiles[0]) / 1.349
+            if posterior_stdev < 1e-10:
+                print(f"{colors.yellow}Warning: Parameter {self.labels[i]} has zero uncertainty. Using prior-based estimate.{colors.e}")
+                prior_width = self.param_bounds[i][1] - self.param_bounds[i][0]
+                posterior_stdev = prior_width * 0.1
+                center = percentiles[1]
+                percentiles[0] = center - posterior_stdev
+                percentiles[2] = center + posterior_stdev
+            shrinkage = 1 - (posterior_stdev / self.prior_stdev[i])
+            ans += f"{self.labels[i]:<28}: {percentiles[1]:.3f} +{percentiles[2] - percentiles[1]:.3f} / -{percentiles[1] - percentiles[0]:.3f} (shrinkage: {shrinkage:.4f})\n"
+
+        finite_logz = self.results.logz[np.isfinite(self.results.logz)]
+        if len(finite_logz) > 0:
+            logz_final = finite_logz[-1]
+        else:
+            logz_final = np.nan
+            
+        if hasattr(self.results, 'logzerr') and self.results.logzerr is not None:
+            finite_logzerr = self.results.logzerr[np.isfinite(self.results.logzerr)]
+            if len(finite_logzerr) > 0:
+                logzerr_final = finite_logzerr[-1]
+            else:
+                logzerr_final = np.nan
+        else:
+            logzerr_final = np.nan
+            
+        if np.isfinite(logz_final) and np.isfinite(logzerr_final):
+            ans += f"\nLog-evidence: {logz_final:.2f} +/- {logzerr_final:.2f}\n"
+        elif np.isfinite(logz_final):
+            ans += f"\nLog-evidence: {logz_final:.2f}\n"
+        else:
+            ans += f"\nLog-evidence: Unable to calculate (corrupted data)\n"
+
+        return ans
+
+    def sample_prior(self, nsamples=1000):
+        u_samples = np.random.uniform(0, 1, size=(nsamples, self.ndim))
+        return np.array([self.prior_transform(u) for u in u_samples])
+
+    def corner_plot(self, filename: str = 'corner_plot.png', n_prior_samples: int = 1000):
+        """
+        Create a corner plot showing both prior and posterior distributions.
+
+        Args:
+            filename: Output filename for the corner plot
+            n_prior_samples: Number of prior samples to generate for visualization
+        """
+        if self.results is None:
+            print(f"{colors.yellow}No results available. Run the sampler first.{colors.e}")
+            return
+
+        print(f"\n{colors.blue}Generating corner plot with priors...{colors.e}")
+
+        try:
+            post_samples = self.get_posterior_samples()
+
+            if post_samples is None or len(post_samples) == 0:
+                print(f"{colors.yellow}No posterior samples available for corner plot.{colors.e}")
+                return
+
+            prior_samples = self.sample_prior(n_prior_samples)
+
+            if prior_samples is None or len(prior_samples) == 0:
+                print(f"{colors.yellow}Warning: Could not generate prior samples. Plotting posterior only.{colors.e}")
+                prior_samples = None
+
+            ranges = []
+            for i in range(post_samples.shape[1]):
+                min_val, max_val = np.min(post_samples[:, i]), np.max(post_samples[:, i])
+                padding = 0.1 * (max_val - min_val) if max_val != min_val else 0.1
+                ranges.append((min_val - padding, max_val + padding))
+
+            fig = corner.corner(
+                post_samples,
+                labels=self.labels,
+                quantiles=[0.16, 0.5, 0.84],
+                show_titles=True,
+                title_fmt=".3f",
+                title_kwargs={"fontsize": 10},
+                label_kwargs={"fontsize": 12},
+                plot_datapoints=True,
+                plot_density=True,
+                plot_contours=True,
+                fill_contours=True,
+                levels=1.0 - np.exp(-0.5 * np.array([1.0, 2.0]) ** 2),
+                alpha=0.5,
+                bins=30,
+                smooth=1.0,
+                smooth1d=1.0,
+                range=ranges
+            )
+
+            plt.subplots_adjust(left=0.1, bottom=0.1, right=0.95, top=0.9, wspace=0.1, hspace=0.1)
+            fig.suptitle('Prior vs Posterior Parameter Distributions', y=0.98, fontsize=16)
+
+            os.makedirs(os.path.dirname(os.path.abspath(filename)), exist_ok=True)
+            plt.savefig(filename, dpi=150, bbox_inches='tight', facecolor='white')
+            plt.close()
+            print(f"{colors.green}Corner plot with priors saved to {os.path.abspath(filename)}{colors.e}")
+
+        except Exception as e:
+            print(f"{colors.red}Error generating corner plot: {str(e)}")
+            if 'post_samples' in locals():
+                print(f"Posterior samples shape: {post_samples.shape if post_samples is not None else 'None'}")
+            if 'prior_samples' in locals():
+                print(
+                    f"Prior samples shape: {prior_samples.shape if 'prior_samples' in locals() and prior_samples is not None else 'None'}")
+            print(f"Labels: {self.labels}{colors.e}")
+            raise
+        print(f"{colors.green}Corner plot with priors saved to {filename}{colors.e}")
+
+    def best_fit_vs_observations(self, filename: str = 'best_fit_model_vs_observed_data.png'):
+        """Plot the best-fit model against the observed data."""
+        print(f"\n{colors.blue}Generating best-fit model vs. observed data plot...{colors.e}")
+
+        best_fit_model_output, transit_duration, _ = self(self.best_fit_params)
+
+        best_fit_model_lightcurve = np.array(best_fit_model_output)
+
+        # Observations
+        observed_phases = (self.observations[:, 0] - 0.5) * 0.5 * fixed_observations_duration / transit_duration + 0.5
+        observed_magnitudes = self.observations[:, 1]
+        min_phase = np.maximum(np.min(observed_phases), np.min(best_fit_model_lightcurve[:, 0]))
+        max_phase = np.minimum(np.max(observed_phases), np.max(best_fit_model_lightcurve[:, 0]))
+        intersection = (observed_phases >= min_phase) & (observed_phases <= max_phase)
+        obs_phase_intersect = observed_phases[intersection]
+        obs_mag_intersect = observed_magnitudes[intersection]
+
+        # Residuals
+        model_interp = np.interp(
+            obs_phase_intersect,
+            best_fit_model_lightcurve[:, 0],
+            best_fit_model_lightcurve[:, 1]
+        )
+        residuals = obs_mag_intersect - model_interp
+
+        # Create figure with two subplots
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8),
+                                       gridspec_kw={'height_ratios': [2, 1]},
+                                       sharex=True)
+
+        # Top panel: data vs. model
+        ax1.plot(obs_phase_intersect, obs_mag_intersect, 'o',
+                 color='blue', markersize=3, alpha=0.5, label='Observed Data')
+        ax1.plot(best_fit_model_lightcurve[:, 0], best_fit_model_lightcurve[:, 1],
+                 '-', color='black', linewidth=2, label='Best-Fit Model')
+        ax1.set_ylabel('Magnitude Change')
+        ax1.legend()
+        ax1.set_title('Best-Fit Model vs. Observed Data')
+        ax1.grid(True)
+        ax1.invert_yaxis()
+
+        # Bottom panel: residuals
+        ax2.plot(obs_phase_intersect, residuals, 'o',
+                 color='red', markersize=3, alpha=0.5)
+        ax2.axhline(0, color='black', linestyle='-', linewidth=1)
+        ax2.set_xlabel('Phase')
+        ax2.set_ylabel('Residuals')
+        ax2.grid(True)
+
+        plt.tight_layout()
+        plt.savefig(filename, dpi=300)
+        plt.close()
+        print(f"{colors.green}Best-fit model vs. observed data plot saved to {filename}{colors.e}")
+
+    def load_and_plot_observations(self, _dir: str = 'observations.jpg',
+                                   title: str = 'Combined Observational Light Curve',
+                                   x_label: str = 'Phase',
+                                   y_label: str = 'Magnitude Change',
+                                   invert_x: bool = False,
+                                   invert_y: bool = True):
+        """
+        Loads observational data from specified CSV files, converts flux to magnitude change,
+        calculates the orbital phase, and generates a plot of the combined data.
+        """
+        print(f"{colors.blue}Loading and processing observational data from CSV files...{colors.e}")
+
+        all_times = []
+        all_mag_changes = []
+
+        plt.figure(figsize=(12, 7))
+
+        for label, (filename, color) in self.files.items():
+            try:
+                df = pd.read_csv(filename, header=None, names=['time', 'flux'])
+                mag_change = -2.5 * np.log10(df['flux'])
+
+                all_times.extend(df['time'].tolist())
+                all_mag_changes.extend(mag_change.tolist())
+
+            except FileNotFoundError:
+                print(f"{colors.yellow}Warning: Could not find the file {filename}. Skipping.{colors.e}")
+                continue
+            except Exception as e:
+                print(f"{colors.red}An error occurred while reading {filename}: {e}{colors.e}")
+                continue
+
+        if not all_times:
+            print(f"{colors.red}No data was loaded. Exiting.{colors.e}")
+            sys.exit(1)
+
+        all_times = np.array(all_times)
+        all_mag_changes = np.array(all_mag_changes)
+        observations_duration = np.max(all_times) - np.min(all_times)
+
+        # normalize phases to 0 - 1 centered on 0.5
+        phases = (all_times / observations_duration) + 0.5
+
+        start_index = 0
+        for label, (filename, color) in self.files.items():
+            try:
+                df = pd.read_csv(filename, header=None)
+                num_points = len(df)
+                end_index = start_index + num_points
+
+                dataset_phases = phases[start_index:end_index]
+                dataset_mag_changes = all_mag_changes[start_index:end_index]
+                match color:
+                    case 'red':
+                        point_style = '.'
+                    case 'blue':
+                        point_style = '^'
+                    case 'green':
+                        point_style = 's'
+                    case _:
+                        point_style = 'o'
+
+                plt.plot(dataset_phases, dataset_mag_changes, point_style,
+                         markersize=3, color=color, label=label, alpha=0.7)
+                start_index = end_index
+            except FileNotFoundError:
+                continue
+
+        plt.xlabel(x_label)
+        plt.ylabel(y_label)
+        plt.title(title)
+        plt.grid(True)
+        plt.legend()
+        if invert_x:
+            plt.gca().invert_xaxis()
+        if invert_y:
+            plt.gca().invert_yaxis()
+        plt.savefig(_dir)
+        plt.close()
+        print(f"{colors.green}Observational data plot saved to {_dir}{colors.e}")
+
+        sorted_indices = np.argsort(phases)
+        self.observations = np.vstack((phases[sorted_indices], all_mag_changes[sorted_indices])).T
+
+    def kfold_split(self, n_splits: int, removed: List[int], _dir: str = 'kfold_observations.jpg',
+                    title: str = 'K-Fold Observational Light Curve',
+                    x_label: str = 'Phase',
+                    y_label: str = 'Magnitude Change',
+                    invert_x: bool = False,
+                    invert_y: bool = True):
+        """
+        Loads observational data from specified CSV files, performs k-fold splitting,
+        removes specified chunks, converts flux to magnitude change, calculates the orbital phase,
+        and generates a plot of the remaining data.
+
+        Args:
+            n_splits: Number of chunks to split the data into
+            removed: List of chunk indices to remove (0-based indexing)
+            _dir: Output filename for the plot
+            title: Plot title
+            x_label: X-axis label
+            y_label: Y-axis label
+            invert_x: Whether to invert the x-axis
+            invert_y: Whether to invert the y-axis
+        """
+        print(f"{colors.blue}Loading and processing observational data with {n_splits}-fold splitting...")
+        print(f"Removing chunks: {removed}{colors.e}")
+
+        all_times = []
+        all_mag_changes = []
+
+        plt.figure(figsize=(12, 7))
+
+        for label, (filename, color) in self.files.items():
+            try:
+                df = pd.read_csv(filename, header=None, names=['time', 'flux'])
+                mag_change = -2.5 * np.log10(df['flux'])
+
+                all_times.extend(df['time'].tolist())
+                all_mag_changes.extend(mag_change.tolist())
+
+            except FileNotFoundError:
+                print(f"{colors.yellow}Warning: Could not find the file {filename}. Skipping.{colors.e}")
+                continue
+            except Exception as e:
+                print(f"{colors.red}An error occurred while reading {filename}: {e}{colors.e}")
+                continue
+
+        if not all_times:
+            print(f"{colors.red}No data was loaded. Exiting.{colors.e}")
+            sys.exit(1)
+
+        all_times = np.array(all_times)
+        all_mag_changes = np.array(all_mag_changes)
+        observations_duration = np.max(all_times) - np.min(all_times)
+
+        phases = (all_times / observations_duration) + 0.5
+
+        sorted_indices = np.argsort(phases)
+        sorted_phases = phases[sorted_indices]
+        sorted_mag_changes = all_mag_changes[sorted_indices]
+
+        chunk_size = len(sorted_phases) // n_splits
+        chunks_phases = []
+        chunks_mag_changes = []
+
+        for i in range(n_splits):
+            start_idx = i * chunk_size
+            if i == n_splits - 1:  # last chunk gets remaining data
+                end_idx = len(sorted_phases)
+            else:
+                end_idx = (i + 1) * chunk_size
+
+            chunks_phases.append(sorted_phases[start_idx:end_idx])
+            chunks_mag_changes.append(sorted_mag_changes[start_idx:end_idx])
+
+        remaining_phases = []
+        remaining_mag_changes = []
+        for i, (chunk_phases, chunk_mag_changes) in enumerate(zip(chunks_phases, chunks_mag_changes)):
+            if i not in removed:
+                remaining_phases.extend(chunk_phases)
+                remaining_mag_changes.extend(chunk_mag_changes)
+
+        if not remaining_phases:
+            print(f"{colors.red}All chunks were removed. No data remaining.{colors.e}")
+            sys.exit(1)
+
+        remaining_phases = np.array(remaining_phases)
+        remaining_mag_changes = np.array(remaining_mag_changes)
+
+        # Plot the remaining data
+        plt.plot(remaining_phases, remaining_mag_changes, 'o',
+                 markersize=3, color='blue', alpha=0.7, label='Training Data')
+
+        plt.xlabel(x_label)
+        plt.ylabel(y_label)
+        plt.title(f"{title} (Chunks {list(set(range(n_splits)) - set(removed))} retained)")
+        plt.grid(True)
+        plt.legend()
+        if invert_x:
+            plt.gca().invert_xaxis()
+        if invert_y:
+            plt.gca().invert_yaxis()
+        plt.savefig(_dir)
+        plt.close()
+        print(f"{colors.green}K-fold observational data plot saved to {_dir}{colors.e}")
+
+        sorted_remaining_indices = np.argsort(remaining_phases)
+        self.observations = np.vstack((remaining_phases[sorted_remaining_indices],
+                                       remaining_mag_changes[sorted_remaining_indices])).T
+
+        return self.observations
+
+    def ppc(self, n_samples=100, filename='ppc.png', deviation=0.02):
+        """
+        Performs and plots posterior-predictive check for the best-fit data.
+
+        :param n_samples: the total number of samples for posterior-predictive check
+        :param filename: the directory to save the graph
+        :param deviation: maximum possible deviation of the parameters in the samples from the best-fit
+        :return:
+        """
+
+        fig, ax = plt.subplots()
+        ax.set_ylabel('Magnitude Change')
+        ax.set_title('Posterior Predictive Check')
+        plt.grid(True)
+        ax.invert_yaxis()
+
+        best_fit_model_output, transit_duration, _ = self(self.best_fit_params)
+
+        best_fit_model_lightcurve = np.array(best_fit_model_output)
+        predictives = []
+
+        for _ in range(n_samples):
+            sample = self.best_fit_params.copy()
+            for i in range(len(sample)):
+                sample[i] = random.uniform(sample[i] * (1 - deviation), sample[i] * (1 + deviation))
+            sample[2] = 90.
+            best_fit_model_output, transit_duration, _ = self(sample)
+
+            model_lightcurve = np.array(best_fit_model_output)
+            predictives.append(model_lightcurve[:, 1])
+
+            plt.plot(model_lightcurve[:, 0], model_lightcurve[:, 1],
+                     '-', color='blue', alpha=0.1, label='Posterior Predictive')
+        plt.plot(best_fit_model_lightcurve[:, 0], np.mean(np.vstack(predictives), axis=0), '--', color='orange', label="Posterior Predictive Mean")
+        plt.plot(best_fit_model_lightcurve[:, 0], best_fit_model_lightcurve[:, 1],
+                 '-', color='black', linewidth=2, label='Best-Fit Model')
+        handles, labels = plt.gca().get_legend_handles_labels()
+        by_label = OrderedDict(zip(labels, handles))
+        plt.legend(by_label.values(), by_label.keys())
+        plt.savefig(filename)
+        plt.close()
+        print(f"{colors.green}Posterior predictive check plot saved to {filename}{colors.e}")
+
+    def trace_plots(self, filename='trace_plots.png'):
+        print(f"\n{colors.blue}Generating trace plots...{colors.e}")
+
+        samples = self.get_posterior_samples(500)
+
+        fig, axes = plt.subplots(len(self.labels), 1, figsize=(10, 2 * len(self.labels)))
+        if len(self.labels) == 1:
+            axes = [axes]
+
+        for i, (ax, label) in enumerate(zip(axes, self.labels)):
+            ax.plot(samples[:, i], 'b-', alpha=0.7)
+            ax.set_ylabel(label)
+            ax.grid(True)
+
+        ax.set_xlabel('Sample Number')
+        plt.tight_layout()
+        plt.savefig(filename, dpi=150)
+        plt.close()
+        print(f"{colors.green}Trace plots saved to {filename}{colors.e}")
+
+    def parameter_distributions(self, filename='parameter_distributions.png'):
+        """Plot parameter distributions with statistics."""
+        print(f"\n{colors.green}Generating parameter distribution plots...{colors.e}")
+
+        samples = self.get_posterior_samples()
+
+        fig, axes = plt.subplots(3, 4, figsize=(15, 10))
+        axes = axes.flatten()
+
+        for i, (ax, label) in enumerate(zip(axes[:len(self.labels)], self.labels)):
+            ax.hist(samples[:, i], bins=30, density=True, alpha=0.7, color='blue', edgecolor='black')
+            ax.set_xlabel(label)
+            ax.set_ylabel('Density')
+            ax.grid(True)
+
+            # Add statistics
+            mean = np.mean(samples[:, i])
+            std = np.std(samples[:, i])
+            median = np.median(samples[:, i])
+
+            ax.axvline(mean, color='red', linestyle='--', label=f'Mean: {mean:.3f}')
+            ax.axvline(median, color='green', linestyle='--', label=f'Median: {median:.3f}')
+            ax.legend()
+
+        # Hide unused subplots
+        for i in range(len(self.labels), len(axes)):
+            axes[i].set_visible(False)
+
+        plt.tight_layout()
+        plt.savefig(filename, dpi=150)
+        plt.close()
+        print(f"{colors.green}Parameter distributions saved to {filename}{colors.e}")
+
+    def correlation_heatmap(self, filename='correlation_heatmap.png'):
+        """Generate a correlation heatmap of parameters."""
+        print(f"\n{colors.blue}Generating correlation heatmap...{colors.e}")
+
+        samples = self.get_posterior_samples()
+        corr_matrix = np.corrcoef(samples.T)
+
+        plt.figure(figsize=(10, 8))
+        sns.heatmap(corr_matrix,
+                    xticklabels=self.labels,
+                    yticklabels=self.labels,
+                    annot=True,
+                    cmap='coolwarm',
+                    center=0,
+                    vmin=-1,
+                    vmax=1)
+        plt.title('Parameter Correlation Matrix')
+        plt.tight_layout()
+        plt.savefig(filename, dpi=150)
+        plt.close()
+        print(f"{colors.green}Correlation heatmap saved to {filename}{colors.e}")
+
+    def analyze(self, folder: str = ''):
+        self.corner_plot(folder + 'corner_plot.png')
+        self.best_fit_vs_observations(folder + 'best_fit_model_vs_observed_data.png')
+        self.ppc(filename=folder + 'ppc.png')
+        self.trace_plots(folder + 'trace_plots.png')
+        self.parameter_distributions(folder + 'parameter_distributions.png')
+        self.correlation_heatmap(folder + 'correlation_heatmap.png')
+
+        # Print summary
+        stats = self.summary()
+        print("Parameter estimates (50th percentile) with 1-sigma uncertainties:")
+        print(stats)
+
+        with open(folder + 'nested_sampling_summary.txt', 'w') as f:
+            f.write("Nested Sampling Results\n")
+            f.write("======================\n\n")
+            f.write("Parameter estimates (50th percentile) with 1-sigma uncertainties:\n")
+            f.write(stats)
+
+            # Add best-fit parameters
+            best_fit_params = self.get_posterior_samples()[self.best_log_likelihood()]
+            f.write("\n\nBest-fit Parameters:\n")
+            for i, label in enumerate(self.labels):
+                f.write(f"{label}: {best_fit_params[i]:.6f}\n")
+
+            f.write(f"\nMaximum Log-Likelihood: {self.best_log_likelihood():.2f}\n")
+            f.write(f"Log-Evidence: {self.results['logz'][-1]:.2f}\n")
+
+        print(f"{colors.green}Analysis complete!{colors.e}")
+
+
+
+fixed_pixel_size = defaults['pixel_size']
+fixed_star_radius = 1.28 * sun_radius  # Grouffal et al., 2022
+fixed_star_log_g = 4.3  # from TICv8
+fixed_star_coefficients = [0.0678, 0.188]  # Grant & Wakeford, 2024
+fixed_observations_duration = 80 * hrs
+fixed_star_object = CustomStarModel(quadratic_star_model, fixed_star_radius,
+                                    fixed_star_log_g, fixed_star_coefficients,
+                                    fixed_pixel_size)
+fixed_exoplanet_mass = 12 * earth_mass  # Santerne et al., 2019
+fixed_exoplanet_period = 542.08 * days  # Santerne et al., 2019
+fixed_exoplanet_sma = 1.377 * au
+fixed_specific_absorption_coefficient = defaults['specific_absorption_coefficient']
+
+sns.set_theme(style="whitegrid")
+
+nlive = 5000
+ndim = 11
+
+ns = NestedSampler(
+    nlive=nlive,
+    ndim=ndim,
+    files={
+        "C18 short cadence": ("observations/C18_short_cadence.csv", "red"),
+        "C18 long cadence": ("observations/C18_long_cadence.csv", "green"),
+        "C5": ("observations/C5.csv", "blue"),
+    },
+    labels=[
+        'Orbit Eccentricity',
+        'Orbit Inclination, °',
+        'Ex. Long. Asc. Node, °',
+        'Ex. Arg. of Periapsis, °',
+        'Exoplanet Radius, km',
+        'Ring Eccentricity',
+        'Ring Semi-Major Axis, km',
+        'Ring Width, km',
+        'Ring Obliquity, °',
+        'Ring Azimuthal Angle, °',
+        'Ring Arg. of Periapsis, °'
+    ]
+)
+
+if __name__ == "__main__":
+    results = ns.run()
+    ns.save('nested_sampling_run/nested_sampling_results.npz')
+    ns.analyze('nested_sampling_run/')

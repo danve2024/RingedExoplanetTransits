@@ -1,0 +1,26 @@
+Noise Model - Fixed 3 Decimal Places
+============================================================
+
+Parameter estimates (50th percentile) with FORCED 3 decimal places:
+Orbit Eccentricity          : 0.131 +0.160 / -0.090 (shrinkage: -0.0847)
+Orbit Inclination, °        : 44.650 +30.240 / -29.906 (shrinkage: -0.1575)
+Ex. Long. Asc. Node, °      : 90.000 +0.000 / -0.000 (shrinkage: 0.3965)
+Ex. Arg. of Periapsis, °    : 35.111 +31.318 / -25.498 (shrinkage: 0.4533)
+Exoplanet Radius, km        : 60996491.649 +10895357.809 / -9551092.118 (shrinkage: 0.5672)
+Noise Scale                 : 0.004 +0.002 / -0.002 (shrinkage: 0.9155)
+Noise Magnitude             : 0.002 +0.001 / -0.002 (shrinkage: 0.9474)
+
+Log-evidence: 4652.78 +/- 3.16
+
+
+Best-fit Parameters:
+Orbit Eccentricity: 0.000445
+Orbit Inclination, °: 58.879567
+Ex. Long. Asc. Node, °: 90.000000
+Ex. Arg. of Periapsis, °: 0.983708
+Exoplanet Radius, km: 58715608.911510
+Noise Scale: 0.001855
+Noise Magnitude: 0.002211
+
+Maximum Log-Likelihood: 4667.19
+Log-Evidence: 4652.78

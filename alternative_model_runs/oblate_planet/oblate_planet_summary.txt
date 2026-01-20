@@ -1,0 +1,26 @@
+Oblate_Planet Model - Fixed 3 Decimal Places
+============================================================
+
+Parameter estimates (50th percentile) with FORCED 3 decimal places:
+Orbit Eccentricity          : 0.134 +0.145 / -0.092 (shrinkage: -0.0241)
+Orbit Inclination, �        : 46.287 +31.002 / -30.256 (shrinkage: -0.1789)
+Ex. Long. Asc. Node, �      : 90.000 +0.000 / -0.000 (shrinkage: 0.4065)
+Ex. Arg. of Periapsis, �    : 36.219 +28.793 / -25.783 (shrinkage: 0.4748)
+Equatorial Radius, km        : 81518971.620 +28547558.601 / -20898345.171 (shrinkage: -0.0466)
+Exoplanet Oblateness        : 0.588 +0.191 / -0.357 (shrinkage: -0.0549)
+Ex. Projection Rotation, �  : 88.827 +60.566 / -64.707 (shrinkage: -0.2054)
+
+Log-evidence: 7553.48 +/- 3.16
+
+
+Best-fit Parameters:
+Orbit Eccentricity: 0.001385
+Orbit Inclination, �: 28.400724
+Ex. Long. Asc. Node, �: 90.000000
+Ex. Arg. of Periapsis, �: 3.055578
+Exoplanet Radius, km: 108331855.913105
+Exoplanet Oblateness: 0.701735
+Ex. Projection Rotation, �: 15.048086
+
+Maximum Log-Likelihood: 7567.84
+Log-Evidence: 7553.48

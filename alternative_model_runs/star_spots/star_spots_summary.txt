@@ -1,0 +1,30 @@
+Star_Spots Model - Fixed 3 Decimal Places
+============================================================
+
+Parameter estimates (50th percentile) with FORCED 3 decimal places:
+Orbit Eccentricity          : 0.136 +0.146 / -0.091 (shrinkage: -0.0264)
+Orbit Inclination, °        : 45.709 +29.780 / -32.022 (shrinkage: -0.1894)
+Ex. Long. Asc. Node, °      : 90.000 +0.000 / -0.000 (shrinkage: 0.4200)
+Ex. Arg. of Periapsis, °    : 37.198 +27.585 / -26.220 (shrinkage: 0.4823)
+Exoplanet Radius, km        : 52239128.632 +15622133.574 / -15974239.989 (shrinkage: 0.5657)
+Star Ang. Velocity, °/s     : -0.000 +0.000 / -0.000 (shrinkage: -0.1359)
+Spot Longitude, °           : 185.671 +117.566 / -124.726 (shrinkage: -0.1657)
+Spot Radius, Star Radii     : 0.479 +0.352 / -0.324 (shrinkage: -0.1723)
+Spot Intensity, Star Intensities: 0.995 +0.742 / -0.632 (shrinkage: -0.1904)
+
+Log-evidence: 4648.39 +/- 3.18
+
+
+Best-fit Parameters:
+Orbit Eccentricity: 0.002708
+Orbit Inclination, °: 16.630687
+Ex. Long. Asc. Node, °: 90.000000
+Ex. Arg. of Periapsis, °: 2.369860
+Exoplanet Radius, km: 58712009.772867
+Star Ang. Velocity, °/s: 0.000611
+Spot Longitude, °: 77.530071
+Spot Radius, Star Radii: 0.028028
+Spot Intensity, Star Intensities: 1.542667
+
+Maximum Log-Likelihood: 4662.96
+Log-Evidence: 4648.39

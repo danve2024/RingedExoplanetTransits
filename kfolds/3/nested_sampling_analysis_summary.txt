@@ -1,0 +1,34 @@
+Complete Nested Sampling Analysis Results
+==========================================
+
+Parameter estimates (50th percentile) with 1-sigma uncertainties:
+Orbit Eccentricity          : 0.000 +0.000 / -0.000 (shrinkage: 0.9996)
+Orbit Inclination, °        : 88.190 +0.123 / -0.355 (shrinkage: 0.9864)
+Ex. Long. Asc. Node, °      : 90.000 +0.000 / -0.000 (shrinkage: 0.9868)
+Ex. Arg. of Periapsis, °    : 5.756 +0.022 / -0.018 (shrinkage: 0.9994)
+Exoplanet Radius, km        : 48687835.365 +34304.240 / -166569.417 (shrinkage: 0.9909)
+Ring Eccentricity           : 0.800 +0.004 / -0.005 (shrinkage: 0.9726)
+Ring Semi-Major Axis, km    : 1870829048.616 +10682987.564 / -4684879.166 (shrinkage: 0.9902)
+Ring Width, km              : 183932801.114 +2044514.058 / -7732946.556 (shrinkage: 0.9938)
+Ring Obliquity, °           : 3.781 +0.137 / -0.641 (shrinkage: 0.9778)
+Ring Azimuthal Angle, °     : 112.832 +1.117 / -0.977 (shrinkage: 0.9701)
+Ring Arg. of Periapsis, °   : 161.129 +0.146 / -0.669 (shrinkage: 0.9884)
+
+Log-evidence: 11817.53 +/- 0.12 (est.)
+
+
+Best-fit Parameters:
+Orbit Eccentricity: 0.000450
+Orbit Inclination, °: 87.841136
+Ex. Long. Asc. Node, °: 90.000000
+Ex. Arg. of Periapsis, °: 5.766493
+Exoplanet Radius, km: 48510939.004809
+Ring Eccentricity: 0.793939
+Ring Semi-Major Axis, km: 1878159559.347616
+Ring Width, km: 184417118.771672
+Ring Obliquity, °: 3.907295
+Ring Azimuthal Angle, °: 111.840848
+Ring Arg. of Periapsis, °: 161.295060
+
+Maximum Log-Likelihood: 11858.39
+Log-Evidence: 11817.53 +/- 0.12 (est.)

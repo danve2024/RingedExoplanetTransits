@@ -1,0 +1,22 @@
+Ringless Model - Fixed 3 Decimal Places
+============================================================
+
+Parameter estimates (50th percentile) with FORCED 3 decimal places:
+Orbit Eccentricity          : 0.000 +0.000 / -0.000 (shrinkage: 0.9990)
+Orbit Inclination, �        : 38.309 +30.747 / -19.210 (shrinkage: 0.0386)
+Ex. Long. Asc. Node, �      : 90.000 +0.000 / -0.000 (shrinkage: 0.0000)
+Ex. Arg. of Periapsis, �    : 1.683 +1.238 / -1.171 (shrinkage: 0.9768)
+Exoplanet Radius, km        : 59463626.131 +443466.166 / -661792.261 (shrinkage: 0.9766)
+
+Log-evidence: 5674.50 +/- 24.46 (est.)
+
+
+Best-fit Parameters:
+Orbit Eccentricity: 0.000070
+Orbit Inclination, �: 54.384045
+Ex. Long. Asc. Node, �: 90.000000
+Ex. Arg. of Periapsis, �: 2.322188
+Exoplanet Radius, km: 59650150.793948
+
+Maximum Log-Likelihood: 5702.13
+Log-Evidence: 5674.50

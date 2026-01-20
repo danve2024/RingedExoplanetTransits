@@ -1,0 +1,15 @@
+Nested Sampling Results
+======================
+
+Parameter estimates (50th percentile) with 1-sigma uncertainties:
+Orbit Eccentricity          : 0.003 +0.000 / -0.000 (shrinkage: 1.0000)
+Orbit Inclination, °        : 16.631 +0.000 / -0.000 (shrinkage: 1.0000)
+Ex. Long. Asc. Node, °      : 90.000 +0.000 / -0.000 (shrinkage: 1.0000)
+Ex. Arg. of Periapsis, °    : 2.370 +0.000 / -0.000 (shrinkage: 1.0000)
+Exoplanet Radius, km        : 58712009.773 +0.000 / -0.000 (shrinkage: 1.0000)
+Star Ang. Velocity, °/s     : 0.001 +0.000 / -0.000 (shrinkage: 1.0000)
+Spot Longitude, °           : 77.530 +0.000 / -0.000 (shrinkage: 1.0000)
+Spot Radius, Star Radii     : 0.028 +0.000 / -0.000 (shrinkage: 1.0000)
+Spot Intensity, Star Intensities: 1.543 +0.000 / -0.000 (shrinkage: 1.0000)
+
+Log-evidence: 4648.39 +/- 3.18
